@@ -77,11 +77,13 @@ class webtech(BHunters):
         return ""
         
     def process(self, task: Task) -> None:
-        domain = task.payload_persistent["domain"]
-        if task.payload["source"] == "subrecon":
+        if task.payload["source"] == "producer":
             url = task.payload_persistent["domain"]
+            newurl=self.add_https_if_missing(url)
         else:
             url = task.payload["data"]
+            newurl = re.sub(r'^https?://', '', url)
+            newurl = newurl.rstrip('/')
         collection=self.db["domains"]
         self.log.info("Starting processing new url")
         self.log.warning(url)
@@ -96,4 +98,4 @@ class webtech(BHunters):
                 )
                     self.send_task(wordpress_task)
 
-            update_result = collection.update_one({"Domain": domain}, {'$push': {'Technology':{url:result} }})
+            update_result = collection.update_one({"Domain": newurl}, {'$push': {'Technology':result }})
