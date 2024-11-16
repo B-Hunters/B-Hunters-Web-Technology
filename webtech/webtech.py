@@ -79,23 +79,32 @@ class webtech(BHunters):
     def process(self, task: Task) -> None:
         if task.payload["source"] == "producer":
             url = task.payload_persistent["domain"]
-            newurl=self.add_https_if_missing(url)
         else:
             url = task.payload["data"]
-            newurl = re.sub(r'^https?://', '', url)
-            newurl = newurl.rstrip('/')
+        newurl=self.add_https_if_missing(url)
         collection=self.db["domains"]
         self.log.info("Starting processing new url")
         self.log.warning(url)
         result=self.scan(url)
+        subdomain=task.payload["subdomain"]
+        subdomain = re.sub(r'^https?://', '', subdomain)
+        subdomain = subdomain.rstrip('/')
+
         if result !="":
             for i in result:
                 if "wordpress" in i[1].lower():
                     wordpress_task = Task(
                     {"type": "url", "stage": "wordpress"},
-                    payload={"data": url
+                    payload={"data": url,
+                             "subdomain":subdomain
                     }
                 )
                     self.send_task(wordpress_task)
-
-            update_result = collection.update_one({"Domain": newurl}, {'$push': {'Technology':result }})
+            domain_document = collection.find_one({"Domain": subdomain})
+            if domain_document:
+                if "Technology" in domain_document and "wappy" in domain_document["Technology"]:
+                    collection.update_one({"Domain": subdomain}, {"$push": {"Technology.wappy": {newurl: result}}})
+                else:
+                    collection.update_one({"Domain": subdomain}, {"$set": {"Technology.wappy": [{newurl: result}]}})
+            else:
+                collection.update_one({"Domain": subdomain}, {"$set": {"Technology": {"wappy": [{newurl: result}]}}})
