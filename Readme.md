@@ -1,6 +1,6 @@
 # B-Hunters-Web-Technology
 
-**This module is used to test Code Injection and Server-Side Template Injection vulnerabilities in [B-Hunters Framework](https://github.com/B-Hunters/B-Hunters) using [wappalyzer-cli](https://github.com/gokulapap/wappalyzer-cli).**
+**This module is used to detect web techs in [B-Hunters Framework](https://github.com/B-Hunters/B-Hunters) using [wappalyzer-cli](https://github.com/gokulapap/wappalyzer-cli).**
 
 
 ## Requirements
