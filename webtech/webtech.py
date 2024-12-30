@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from b_hunters.bhunter import BHunters
 from karton.core import Task
 import re
+from bson.objectid import ObjectId
 
 class webtech(BHunters):
     """
@@ -82,10 +83,13 @@ class webtech(BHunters):
         else:
             url = task.payload["data"]
         newurl=self.add_https_if_missing(url)
-        collection=self.db["domains"]
+        self.scanid=task.payload_persistent["scan_id"]
+        report_id=task.payload_persistent["report_id"]
         self.log.info("Starting processing new url")
         self.log.warning(url)
         result=self.scan(url)
+        self.waitformongo()
+        collection=self.db["reports"]
         subdomain=task.payload["subdomain"]
         subdomain = re.sub(r'^https?://', '', subdomain)
         subdomain = subdomain.rstrip('/')
@@ -100,11 +104,11 @@ class webtech(BHunters):
                     }
                 )
                     self.send_task(wordpress_task)
-            domain_document = collection.find_one({"Domain": subdomain})
+            domain_document = collection.find_one({"_id": ObjectId(report_id)})
             if domain_document:
                 if "Technology" in domain_document and "wappy" in domain_document["Technology"]:
-                    collection.update_one({"Domain": subdomain}, {"$push": {"Technology.wappy": {newurl: result}}})
+                    collection.update_one({"_id": ObjectId(report_id)}, {"$push": {"Technology.wappy": {newurl: result}}})
                 else:
-                    collection.update_one({"Domain": subdomain}, {"$set": {"Technology.wappy": [{newurl: result}]}})
+                    collection.update_one({"_id": ObjectId(report_id)}, {"$set": {"Technology.wappy": [{newurl: result}]}})
             else:
-                collection.update_one({"Domain": subdomain}, {"$set": {"Technology": {"wappy": [{newurl: result}]}}})
+                collection.update_one({"_id": ObjectId(report_id)}, {"$set": {"Technology": {"wappy": [{newurl: result}]}}})
