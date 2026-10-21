@@ -32,45 +32,45 @@ class webtech(BHunters):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
     def techsfind(self,url):
-        try:
-            filename=self.generate_random_filename()
-            output=subprocess.run(["wappy","-u", url,"-wf",filename], capture_output=True, text=True)
-            data=""
-            if os.path.exists(filename) and os.path.getsize(filename) > 0:  # Check if file exists and is not empty
-                with open(filename, 'r') as file:
-                    try:
-                        data = file.read()
-                    except Exception as e:
-                        print("Error:",e)
-                        result=""
-            else:
-                result=""
-            if data!="":
-                matches = re.search(r'TECHNOLOGIES\[(.*?)\]:', data, re.DOTALL)
-                if matches:
-                    end_index = matches.end()
-                    lines_after_match = data[end_index:].split('\n')
-                    # print(lines_after_match)
-                    techs=[]
-                    for i in lines_after_match:
-                        if i != "":
-                            splitwithcollon=i.split(" :")
-                            version=splitwithcollon[1].split("[version:")
-                            servicetype=splitwithcollon[0]
-                            service=version[0]
-                            serviceversion=version[1].replace("]", "")
-                            if "tag" not in servicetype.lower() and "font" not in servicetype.lower()  and "seo" not in servicetype.lower() and "database" not in servicetype.lower() and "video player" not in servicetype.lower() and "cdn" not in servicetype.lower():
+        """Fingerprint the technologies of a URL.
 
-                                techs.append([servicetype.strip(),service.strip(),serviceversion.strip()])
-                    result=techs
-                else:
-                    result=""
-            
+        The tool is the Go rewrite of wappalyzer-cli, which offers a JSON
+        output.  The result keeps the shape the report document expects: a
+        list of ``[category, name, version]`` entries.
+        """
+        try:
+            output=subprocess.run(
+                ["wappy","-u", url,"--format","json"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if output.returncode != 0 or not output.stdout:
+                self.log.error(f"wappy failed for {url}: {output.stderr[:200]}")
+                return ""
+            try:
+                document = json.loads(output.stdout)
+            except ValueError as exc:
+                self.log.error(f"wappy returned invalid JSON for {url}: {exc}")
+                return ""
+
+            techs=[]
+            for result in document.get("results", []) or []:
+                for technology in result.get("technologies", []) or []:
+                    name = str(technology.get("name", "")).strip()
+                    if not name:
+                        continue
+                    categories = technology.get("categories", []) or []
+                    category = str(categories[0]) if categories else "unknown"
+                    version = str(technology.get("version", "") or "")
+                    techs.append([category, name, version])
+            if not techs:
+                return ""
+            return techs
         except Exception as e:
-            print("error ",e)
-            result=""
-        return result
-                
+            self.log.error(f"wappy failed for {url}: {e}")
+            return ""
+
     def scan(self,url):        
         result=self.techsfind(url)
         if result !="":
@@ -78,6 +78,12 @@ class webtech(BHunters):
         return ""
         
     def process(self, task: Task) -> None:
+        # The host being processed is the per-task subdomain, exactly as
+        # every other worker uses.  The persistent root domain is only the
+        # starting point of a scan.
+        subdomain=task.payload["subdomain"]
+        subdomain = re.sub(r'^https?://', '', subdomain)
+        subdomain = subdomain.rstrip('/')
         if task.payload["source"] == "producer":
             url = task.payload_persistent["domain"]
         else:
@@ -86,13 +92,16 @@ class webtech(BHunters):
         self.scanid=task.payload_persistent["scan_id"]
         report_id=task.payload_persistent["report_id"]
         self.log.info("Starting processing new url")
+        self.update_task_status(subdomain,"Started")
+        try:
+            result=self.scan(url)
+        except Exception as e:
+            self.log.error(e)
+            self.update_task_status(subdomain,"Failed")
+            raise
         self.log.warning(url)
-        result=self.scan(url)
         self.waitformongo()
         collection=self.db["reports"]
-        subdomain=task.payload["subdomain"]
-        subdomain = re.sub(r'^https?://', '', subdomain)
-        subdomain = subdomain.rstrip('/')
 
         if result !="":
             for i in result:
@@ -112,3 +121,5 @@ class webtech(BHunters):
                     collection.update_one({"_id": ObjectId(report_id)}, {"$set": {"Technology.wappy": [{newurl: result}]}})
             else:
                 collection.update_one({"_id": ObjectId(report_id)}, {"$set": {"Technology": {"wappy": [{newurl: result}]}}})
+
+        self.update_task_status(subdomain,"Finished")
